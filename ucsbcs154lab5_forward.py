@@ -313,33 +313,33 @@ forward_B = pyrtl.WireVector(bitwidth = 2, name = "forward_B") # 00, 01, 10
 # ----- Assign wire vectors -----
 # Forward_A
 with pyrtl.conditional_assignment:
-    with (reg_write_xm 
-          & (rd_xm != 0) 
-          & (rd_xm == rs_dx)) : # EX hazard
-        forward_A |= 0b10
     with (reg_write_mw 
           & (rd_mw != 0) 
           & ~(reg_write_xm 
               & (rd_xm != 0) 
-              & (rd_xm != rs_dx)) 
+              & (rd_xm == rs_dx))    # if it is an ex haz, but also mem haz, then go with mem
           & (rd_mw == rs_dx)): # MEM hazard
         forward_A |= 0b1
+    with (reg_write_xm 
+          & (rd_xm != 0) 
+          & (rd_xm == rs_dx)) : # EX hazard
+        forward_A |= 0b10
     with pyrtl.otherwise:
         forward_A |= 0b0
         
 # Forward_B
 with pyrtl.conditional_assignment:
-    with (reg_write_xm 
-          & (rd_xm != 0) 
-          & (rd_xm == rt_dx)) : # EX hazard
-        forward_B |= 0b10
     with (reg_write_mw 
           & (rd_mw != 0) 
           & ~(reg_write_xm 
               & (rd_xm != 0) 
-              & (rd_xm != rt_dx)) 
+              & (rd_xm == rt_dx))  # if it is an ex haz, but also mem haz, then go with mem
           & (rd_mw == rt_dx)): # MEM hazard
         forward_B |= 0b1
+    with (reg_write_xm 
+          & (rd_xm != 0) 
+          & (rd_xm == rt_dx)) : # EX hazard
+        forward_B |= 0b10
     with pyrtl.otherwise:
         forward_B |= 0b0
 """ 
@@ -369,6 +369,8 @@ and (EX/MEM.RegisterRd ≠ ID/EX.RegisterRt))
 and (MEM/WB.RegisterRd = ID/EX.RegisterRt)) ForwardB = 01
 """
 
+
+        
 # ====== ALU INPUTS, DOUBLE CHECK THESE ======
 ALU_first_x = pyrtl.WireVector(bitwidth=32, name='ALU_first_x')
 with pyrtl.conditional_assignment:
@@ -376,22 +378,21 @@ with pyrtl.conditional_assignment:
         ALU_first_x |= rf_data_1_x
     with forward_A == 0b01:
         ALU_first_x |= rf_write_data_w
-    with forward_A == 0b10:
+    with forward_A == 0b10: # EX
         ALU_first_x |= ALU_result_xm
 
-ALU_second_initial_x = pyrtl.WireVector(bitwidth=32, name='ALU_second_initial_x')
+ALU_second_reg = pyrtl.WireVector(bitwidth=32, name = "ALU_second_reg")
 with pyrtl.conditional_assignment:
     with forward_B == 0b00:
-        ALU_second_initial_x |= rf_data_2_x
+        ALU_second_reg |= rf_data_2_x
     with forward_B == 0b01:
-        ALU_second_initial_x |= rf_write_data_w
-    with forward_B == 0b10:
-        ALU_second_initial_x |= ALU_result_xm
-        
+        ALU_second_reg |= rf_write_data_w
+    with forward_B == 0b10: # EX
+        ALU_second_reg |= ALU_result_xm
 ALU_second_x = pyrtl.WireVector(bitwidth=32, name='ALU_second_x')
 with pyrtl.conditional_assignment:
     with ALU_src_dx==0:
-        ALU_second_x |= ALU_second_initial_x
+        ALU_second_x |= ALU_second_reg
     with ALU_src_dx==1:
         ALU_second_x |= imm_sign_dx
     with ALU_src_dx==2:
@@ -404,7 +405,7 @@ to_branch_x <<= branch_dx & ALU_zero_x
 """ 
 ForwardA = 00 ID/EX The first ALU operand comes from the register file.
 ForwardA = 10 EX/MEM The first ALU operand is forwarded from the prior ALU result.
-ForwardA = 01 MEM/WB The first ALU operand is forwarded from data memory or an earlieALU result.
+ForwardA = 01 MEM/WB The first ALU operand is forwarded from data memory or an earlier ALU result.
 ForwardB = 00 ID/EX The second ALU operand comes from the register file.
 ForwardB = 10 EX/MEM The second ALU operand is forwarded from the prior ALU result.
 ForwardB = 01 MEM/WB The second ALU operand is forwarded from data memory or an
@@ -423,7 +424,7 @@ mem_write_xm.next <<= mem_write_dx
 mem_to_reg_xm.next <<= mem_to_reg_dx
 reg_write_xm.next <<= reg_write_dx
 rd_xm.next <<= rd_x
-rf_data_2_xm.next <<= rf_data_2_x
+rf_data_2_xm.next <<= ALU_second_reg
 
 
 # memory
@@ -473,13 +474,13 @@ if __name__ == '__main__':
     })
 
     # Run for an arbitrarily large number of cycles.
-    for cycle in range(30):
+    for cycle in range(1000):
         sim.step({})
 
     # Use render_trace() to debug if your code doesn't work.
-    ucsbcs154lab5_sim_trace.render_trace(symbol_len=20)
-    ucsbcs154lab5_sim_trace.print_vcd(open('dump.vcd', 'w'), include_clock=True)
+    # ucsbcs154lab5_sim_trace.render_trace(symbol_len=20)
+    # ucsbcs154lab5_sim_trace.print_vcd(open('dump.vcd', 'w'), include_clock=True)
 
     # You can also print out the register file or memory like so if you want to debug:
-    print('mem',sim.inspect_mem(d_mem))
-    print('rf',sim.inspect_mem(rf))
+    print("Register Files: ", sim.inspect_mem(rf))
+    print("Data Mem: ", sim.inspect_mem(d_mem))
